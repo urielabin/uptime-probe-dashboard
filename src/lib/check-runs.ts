@@ -55,8 +55,18 @@ export async function listRunsForConfig(configName: string, limit = 200): Promis
  * defense-in-depth on top of RLS, not the access-control boundary itself.
  * Caller is responsible for calling `supabase.removeChannel(channel)` on
  * unmount.
+ *
+ * `onSubscribed` fires once the WebSocket handshake actually completes --
+ * events aren't queued for late subscribers, so an INSERT that happens
+ * before this fires is missed permanently, not just delayed. Callers that
+ * need to know the subscription is truly live (e.g. tests) should wait on
+ * this rather than guessing a timeout.
  */
-export function subscribeToNewRuns(userId: string, onInsert: (row: CheckRunRow) => void): RealtimeChannel {
+export function subscribeToNewRuns(
+  userId: string,
+  onInsert: (row: CheckRunRow) => void,
+  onSubscribed?: () => void,
+): RealtimeChannel {
   return supabase
     .channel(`check_runs:${userId}`)
     .on(
@@ -64,5 +74,7 @@ export function subscribeToNewRuns(userId: string, onInsert: (row: CheckRunRow) 
       { event: 'INSERT', schema: 'public', table: 'check_runs', filter: `user_id=eq.${userId}` },
       (payload) => onInsert(payload.new as CheckRunRow),
     )
-    .subscribe()
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') onSubscribed?.()
+    })
 }

@@ -8,12 +8,16 @@ import { NarrativePanel } from '../components/monitor/NarrativePanel.js'
 export function MonitorDetailPage() {
   const { configName } = useParams<{ configName: string }>()
   const decodedName = decodeURIComponent(configName ?? '')
-  const { runs, loading } = useCheckRuns(decodedName)
+  const { runs, loading, realtimeReady } = useCheckRuns(decodedName)
 
   return (
     <div className="min-h-screen px-6 py-10 max-w-5xl mx-auto">
       <Link to="/dashboard" className="text-sm text-secondary hover:text-primary">← Monitors</Link>
       <h1 className="text-2xl font-semibold mt-2 mb-8">{decodedName}</h1>
+      {/* Observable-only signal for tests: an INSERT that happens before
+          the Realtime subscription reaches SUBSCRIBED is missed forever,
+          not just delayed, so waiting on a fixed timeout is unreliable. */}
+      <span data-testid="realtime-status" data-ready={realtimeReady} className="hidden" />
 
       {loading ? (
         <p className="text-secondary text-sm">Loading…</p>

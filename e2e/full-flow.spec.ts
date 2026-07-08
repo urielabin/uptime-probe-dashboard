@@ -27,10 +27,19 @@ test('sign up, generate a key, push a real run from outside the page, see it app
 
   // The initial fetch resolving (above) only proves the page loaded --
   // it says nothing about the WebSocket subscription's own handshake,
-  // which happens concurrently and isn't otherwise observable from
-  // outside the page. Give it a moment to reach SUBSCRIBED before
-  // pushing the row, so a slow handshake can't produce a false negative.
-  await page.waitForTimeout(1500)
+  // which happens concurrently. Realtime events aren't queued for late
+  // subscribers, so an INSERT before SUBSCRIBED is missed forever, not
+  // just delayed -- wait on the real signal rather than guessing a
+  // timeout (CI runners are slower than local dev and made a fixed
+  // sleep here flaky).
+  await expect(page.getByTestId('realtime-status')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
+
+  // The client-side SUBSCRIBED callback confirms the WebSocket handshake
+  // completed, but there's a brief further gap before the server-side
+  // logical-replication stream is actually forwarding matching changes to
+  // that subscription -- a small buffer on top of the real signal, not a
+  // substitute for it.
+  await page.waitForTimeout(500)
 
   const ingestResponse = await request.post(DEV_API_URL, {
     headers: { authorization: `Bearer ${rawKey}` },
