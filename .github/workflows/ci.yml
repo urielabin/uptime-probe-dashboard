@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
+      - name: Read local Supabase credentials into env
+        run: |
+          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' >> "$GITHUB_ENV"
+      - name: Run integration tests against real local Supabase
+        run: npm run test:integration
+        env:
+          VITE_SUPABASE_URL: ${{ env.API_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ env.ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SERVICE_ROLE_KEY }}
+      - run: supabase stop
+        if: always()
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
+      - name: Read local Supabase credentials into env
+        run: |
+          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' >> "$GITHUB_ENV"
+      - name: Write .env.local for build + dev API server
+        run: |
+          echo "VITE_SUPABASE_URL=${{ env.API_URL }}" >> .env.local
+          echo "VITE_SUPABASE_ANON_KEY=${{ env.ANON_KEY }}" >> .env.local
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ env.API_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ env.ANON_KEY }}
+      # Real end-to-end check: signs up a real user, generates a real API
+      # key through the UI, POSTs a real payload to /api/ingest from the
+      # shell (mirroring the CLI), then asserts the run appears on the
+      # dashboard with no page reload -- proving the Realtime subscription
+      # actually fired, not just that the ingestion write succeeded.
+      - name: Start preview server and dev API server
+        run: |
+          nohup npm run preview -- --port 4173 > preview.log 2>&1 &
+          nohup npx tsx scripts/dev-server.ts > dev-api.log 2>&1 &
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_URL: ${{ env.API_URL }}
+      - name: Wait for preview server
+        run: until curl -sf http://localhost:4173 >/dev/null; do sleep 0.5; done
+      - run: npx playwright test
+        env:
+          VITE_SUPABASE_URL: ${{ env.API_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ env.ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SERVICE_ROLE_KEY }}
+      - run: supabase stop
+        if: always()
