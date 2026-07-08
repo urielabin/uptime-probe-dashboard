@@ -34,29 +34,44 @@ test('sign up, generate a key, push a real run from outside the page, see it app
   // sleep here flaky).
   await expect(page.getByTestId('realtime-status')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
 
-  // The client-side SUBSCRIBED callback confirms the WebSocket handshake
-  // completed, but there's a brief further gap before the server-side
-  // logical-replication stream is actually forwarding matching changes to
-  // that subscription -- a small buffer on top of the real signal, not a
-  // substitute for it.
-  await page.waitForTimeout(500)
-
-  const ingestResponse = await request.post(DEV_API_URL, {
-    headers: { authorization: `Bearer ${rawKey}` },
-    data: {
-      configName,
-      summary: {
-        overallUptimePercent: 100,
-        overallLatency: { min: 10, max: 50, mean: 20, p50: 18, p90: 30, p95: 40, p99: 45 },
-        checks: [],
+  async function pushRun() {
+    const response = await request.post(DEV_API_URL, {
+      headers: { authorization: `Bearer ${rawKey}` },
+      data: {
+        configName,
+        summary: {
+          overallUptimePercent: 100,
+          overallLatency: { min: 10, max: 50, mean: 20, p50: 18, p90: 30, p95: 40, p99: 45 },
+          checks: [],
+        },
+        thresholdResult: { passed: true, violations: [] },
+        narrative: 'e2e smoke run',
       },
-      thresholdResult: { passed: true, violations: [] },
-      narrative: 'e2e smoke run',
-    },
-  })
-  expect(ingestResponse.status()).toBe(201)
+    })
+    expect(response.status()).toBe(201)
+  }
+
+  // The client-side SUBSCRIBED callback confirms the WebSocket handshake
+  // completed, but on a just-started local Supabase instance (as in CI --
+  // a long-running local dev instance doesn't show this) Realtime's own
+  // internal publication cache can still be warming up separately from
+  // per-client handshakes, so an event pushed immediately after SUBSCRIBED
+  // can still be missed. Rather than guess how long that takes, retry the
+  // push itself: each attempt is a fresh row/change event, so whichever
+  // attempt lands after the cache has caught up gets delivered -- no fixed
+  // number to tune, bounded to a generous total budget.
+  // Each retry may land (duplicate rows all render the same text), so
+  // target the first match throughout -- the point is "at least one",
+  // not "exactly one".
+  await pushRun()
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const visible = await page.getByText('100.00%').first().isVisible().catch(() => false)
+    if (visible) break
+    await pushRun()
+    await page.waitForTimeout(3000)
+  }
 
   // No reload -- this is the point of the test.
-  await expect(page.getByText('100.00%')).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('e2e smoke run')).toBeVisible()
+  await expect(page.getByText('100.00%').first()).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('e2e smoke run').first()).toBeVisible()
 })
