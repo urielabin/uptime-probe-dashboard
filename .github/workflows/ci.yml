@@ -13,7 +13,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -39,7 +39,7 @@ jobs:
       - run: supabase start
       - name: Read local Supabase credentials into env
         run: |
-          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' >> "$GITHUB_ENV"
+          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' | tr -d '"' >> "$GITHUB_ENV"
       - name: Run integration tests against real local Supabase
         run: npm run test:integration
         env:
@@ -56,7 +56,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -67,7 +67,7 @@ jobs:
       - run: supabase start
       - name: Read local Supabase credentials into env
         run: |
-          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' >> "$GITHUB_ENV"
+          supabase status -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=' | tr -d '"' >> "$GITHUB_ENV"
       - name: Write .env.local for build + dev API server
         run: |
           echo "VITE_SUPABASE_URL=${{ env.API_URL }}" >> .env.local
